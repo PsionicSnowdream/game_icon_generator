@@ -39,4 +39,4 @@ python skills/game-icon-generator/scripts/contact_sheet.py icons/ -o sheet.png
 
 MIT, see `LICENSE`.
 
-[![Made with pollinations.ai](assets/badge-made-with.svg)](https://pollinations.ai)
+[![Made with pollinations.ai](https://raw.githubusercontent.com/pollinations/pollinations/123ed07456106a4f752c0a22c584e8cadd2db6a8/packages/ui/src/brand/badge-made-with.svg)](https://pollinations.ai/?ref=badge)
