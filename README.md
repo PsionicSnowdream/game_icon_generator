@@ -23,10 +23,15 @@ You can also run the scripts without an agent:
 
 ```
 pip install pillow numpy
-export POLLINATIONS_API_KEY=sk_...
 python skills/game-icon-generator/scripts/make_icon.py --batch examples/icons.json -d icons/ --seed 5
 python skills/game-icon-generator/scripts/contact_sheet.py icons/ -o sheet.png
 ```
+
+## Sign-in
+
+The first run prints a link and a code. You open the link, sign in with Pollinations and set a budget,
+and the icons are paid from your own balance. The script never asks you to paste a key; it keeps the one
+Pollinations gives it in `~/.game-icon-generator/key`. `--logout` deletes it.
 
 ## Notes
 

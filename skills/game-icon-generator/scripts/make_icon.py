@@ -7,7 +7,9 @@ One icon:
 A set (JSON object, name -> subject):
     python make_icon.py --batch icons.json -d icons/
 
-The key is read from POLLINATIONS_API_KEY (or --key-file). Needs Pillow and numpy.
+First run asks you to sign in with Pollinations (a link and a code, you approve it in the browser
+and set your own budget). The key is saved in ~/.game-icon-generator/key; --logout removes it.
+POLLINATIONS_API_KEY or --key-file work too, for CI. Needs Pillow and numpy.
 """
 import argparse
 import io
@@ -32,13 +34,68 @@ STYLE = (
 )
 
 
-def load_key(key_file):
+AUTH = "https://enter.pollinations.ai/api/device"
+KEY_CACHE = Path.home() / ".game-icon-generator" / "key"
+
+
+def post_json(url, payload):
+    """POST JSON, return (status, parsed body). Error statuses are returned, not raised."""
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "User-Agent": "game-icon-generator"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:
+            return e.code, {}
+
+
+def sign_in():
+    """Pollinations sign-in (device flow). The user approves in a browser and sets their own budget; nobody pastes a key."""
+    status, data = post_json(f"{AUTH}/code", {})
+    if status != 200 or "device_code" not in data:
+        sys.exit(f"Could not start the sign-in ({status}).")
+    print("Sign in with Pollinations to spend your own balance on the icons.", file=sys.stderr)
+    print(f"Open: {data['verification_uri_complete']}", file=sys.stderr)
+    print(f"Code: {data['user_code']}", file=sys.stderr)
+    print("Waiting for approval...", file=sys.stderr, flush=True)
+    interval = data.get("interval", 5)
+    deadline = time.time() + data.get("expires_in", 1800)
+    while time.time() < deadline:
+        time.sleep(interval)
+        status, body = post_json(f"{AUTH}/token", {"device_code": data["device_code"]})
+        if status == 200 and body.get("access_token"):
+            KEY_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            KEY_CACHE.write_text(body["access_token"], encoding="utf-8")
+            try:
+                KEY_CACHE.chmod(0o600)
+            except OSError:
+                pass
+            print("Signed in.", file=sys.stderr)
+            return body["access_token"]
+        error = body.get("error", "")
+        if error == "slow_down":
+            interval += 5
+        elif error != "authorization_pending":
+            sys.exit(f"Sign-in failed: {error or status}")
+    sys.exit("Sign-in timed out. Run it again.")
+
+
+def load_key(key_file, force_login=False):
+    """Order: --key-file, POLLINATIONS_API_KEY, the key saved by an earlier sign-in, a new sign-in."""
     if key_file:
         return Path(key_file).read_text(encoding="utf-8").strip()
     key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
-    if not key:
-        sys.exit("No API key. Set POLLINATIONS_API_KEY or pass --key-file (keys: https://enter.pollinations.ai/keys).")
-    return key
+    if key and not force_login:
+        return key
+    if KEY_CACHE.exists() and not force_login:
+        return KEY_CACHE.read_text(encoding="utf-8").strip()
+    return sign_in()
 
 
 def fetch(prompt, key, seed, model, retries=3):
@@ -52,6 +109,8 @@ def fetch(prompt, key, seed, model, retries=3):
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
+            if e.code == 401:
+                sys.exit("The key was rejected (expired or revoked). Run again with --login to sign in.")
             if e.code in (429, 500, 502, 503) and attempt < retries - 1:
                 time.sleep(8 * (attempt + 1))  # the model allows about 12 requests a minute
                 continue
@@ -139,11 +198,19 @@ def main():
     ap.add_argument("--keep-background", action="store_true", help="skip the background cut-out")
     ap.add_argument("--force", action="store_true", help="overwrite existing files")
     ap.add_argument("--workers", type=int, default=3, help="parallel requests for --batch (default: 3)")
-    ap.add_argument("--key-file", help="file with the API key (otherwise POLLINATIONS_API_KEY)")
+    ap.add_argument("--login", action="store_true", help="sign in with Pollinations again, even if a key is saved")
+    ap.add_argument("--logout", action="store_true", help="forget the saved key and exit")
+    ap.add_argument("--key-file", help="file with an API key (CI use; normally you just sign in)")
     a = ap.parse_args()
 
+    if a.logout:
+        KEY_CACHE.unlink(missing_ok=True)
+        print("Saved key removed. You can also revoke it at https://enter.pollinations.ai/keys.")
+        return
     style = Path(a.style_file).read_text(encoding="utf-8").strip() if a.style_file else a.style
-    key = load_key(a.key_file)
+    key = load_key(a.key_file, a.login)
+    if a.login and not (a.subject or a.batch):
+        return  # sign-in only
     if a.batch:
         subjects = json.loads(Path(a.batch).read_text(encoding="utf-8"))
         jobs = [(s, Path(a.dir) / f"{name}.png") for name, s in subjects.items()]

@@ -14,8 +14,16 @@ The point is a consistent set: one fixed style text, only the subject changes.
 
 ```
 pip install pillow numpy
-export POLLINATIONS_API_KEY=sk_...      # key from https://enter.pollinations.ai/keys
+python scripts/make_icon.py --login
 ```
+
+`--login` signs in with Pollinations: the script prints a link and a code, the user opens the link,
+approves, and sets a budget. Icons are paid from the user's own balance. Nobody pastes a key.
+The key is saved in `~/.game-icon-generator/key`, so this is needed once.
+
+If you are an agent: run the command, show the link and code to the user, and wait for it to finish.
+`--logout` removes the saved key (it can also be revoked at https://enter.pollinations.ai/keys).
+For CI there is still `POLLINATIONS_API_KEY` or `--key-file`.
 
 ## One icon
 
