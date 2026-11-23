@@ -66,6 +66,7 @@ def sign_in():
     print("Waiting for approval...", file=sys.stderr, flush=True)
     interval = data.get("interval", 5)
     deadline = time.time() + data.get("expires_in", 1800)
+    server_errors = 0
     while time.time() < deadline:
         time.sleep(interval)
         status, body = post_json(f"{AUTH}/token", {"device_code": data["device_code"]})
@@ -81,8 +82,10 @@ def sign_in():
         error = body.get("error", "")
         if error == "slow_down":
             interval += 5
+        elif status >= 500 and server_errors < 3:
+            server_errors += 1  # a hiccup on the server side: keep polling a few more times
         elif error != "authorization_pending":
-            sys.exit(f"Sign-in failed: {error or status}")
+            sys.exit(f"Sign-in failed ({status}): {error or body.get('message') or 'no details'}")
     sys.exit("Sign-in timed out. Run it again.")
 
 
